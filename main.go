@@ -19,10 +19,7 @@ const usage = `Usage:
 	ge2ev2 [-c config file] chrec DATAROOM_PATH
 	
 Options:
-	-i PATH		Use the identity file at PATH. Default: key
-	-f PATH		Path to factor File. Default: factor
-	-r PATH		Path to Recipient File. Default: recipient
-	-e PATH		Path to Encapsulation File. Default: <INPUT_File>.encap`
+	-c PATH		Use the config file at PATH. Default: config.toml`
 
 func main() {
 	configFlag := flag.String("c", "config.toml", "config file")
@@ -99,7 +96,7 @@ func uploadHandle(config ge2ev2.Config) {
 		os.Exit(1)
 	}
 
-	ge2ev2.UploadFile(dataroompath, file, config)
+	ge2ev2.UploadFile2(dataroompath, file, config)
 }
 
 func lsHandle(config ge2ev2.Config) {
@@ -145,7 +142,7 @@ func downHandle(config ge2ev2.Config) {
 		os.Exit(1)
 	}
 
-	ge2ev2.DownloadFile(dataroompath, filename, dest2, config)
+	ge2ev2.DownloadFile2(dataroompath, filename, dest2, config)
 }
 
 func chrecHandle(config ge2ev2.Config) {
