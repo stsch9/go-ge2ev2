@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
@@ -65,13 +66,26 @@ func mkdrHandle(config ge2ev2.Config) {
 
 	dataroompath := flag.Arg(1)
 
-	if validateFile(dataroompath) {
+	if ok, err := validateDR(config.Rcloneremote + ":" + dataroompath); err != nil {
+		fmt.Println("Unexpected error: ", err)
+		os.Exit(1)
+	} else if ok {
 		fmt.Println(dataroompath + " already exists")
 		os.Exit(1)
 	}
 
-	if err := os.MkdirAll(dataroompath+"/.meta", os.ModePerm); err != nil {
-		panic(err)
+	cmd := exec.Command("rclone", "mkdir", config.Rcloneremote+"xsa:"+dataroompath+"/.meta")
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Prüfe, ob der Fehler ein ExitError ist
+		if _, ok := err.(*exec.ExitError); ok {
+			fmt.Println("Error: ", string(output))
+			os.Exit(1)
+		} else {
+			fmt.Println("Unexpected error: ", err)
+			os.Exit(1)
+		}
 	}
 
 	ge2ev2.CreateDataroom(dataroompath, config)
@@ -91,7 +105,10 @@ func uploadHandle(config ge2ev2.Config) {
 		os.Exit(1)
 	}
 
-	if !validateFile(dataroompath) {
+	if ok, err := validateDR(config.Rcloneremote + ":" + dataroompath); err != nil {
+		fmt.Println("Unexpected error: ", err)
+		os.Exit(1)
+	} else if !ok {
 		fmt.Println("Dataroom " + dataroompath + " not found")
 		os.Exit(1)
 	}
@@ -107,7 +124,10 @@ func lsHandle(config ge2ev2.Config) {
 
 	dataroompath := flag.Arg(1)
 
-	if !validateFile(dataroompath) {
+	if ok, err := validateDR(config.Rcloneremote + ":" + dataroompath); err != nil {
+		fmt.Println("Unexpected error: ", err)
+		os.Exit(1)
+	} else if !ok {
 		fmt.Println("Dataroom " + dataroompath + " not found")
 		os.Exit(1)
 	}
@@ -137,7 +157,10 @@ func downHandle(config ge2ev2.Config) {
 		os.Exit(1)
 	}
 
-	if !validateFile(dataroompath) {
+	if ok, err := validateDR(config.Rcloneremote + ":" + dataroompath); err != nil {
+		fmt.Println("Unexpected error: ", err)
+		os.Exit(1)
+	} else if !ok {
 		fmt.Println("Dataroom " + dataroompath + " not found")
 		os.Exit(1)
 	}
@@ -153,8 +176,11 @@ func chrecHandle(config ge2ev2.Config) {
 
 	dataroompath := flag.Arg(1)
 
-	if !validateFile(dataroompath + "/.meta") {
-		fmt.Println("Path " + dataroompath + "/.meta not found")
+	if ok, err := validateDR(config.Rcloneremote + ":" + dataroompath); err != nil {
+		fmt.Println("Unexpected error: ", err)
+		os.Exit(1)
+	} else if !ok {
+		fmt.Println("Dataroom " + dataroompath + " not found")
 		os.Exit(1)
 	}
 
@@ -195,4 +221,22 @@ func readConfig(configFile string) ge2ev2.Config {
 	}
 
 	return config
+}
+
+func validateDR(dr string) (bool, error) {
+	cmd := exec.Command("rclone", "ls", dr)
+
+	err := cmd.Run()
+	if err != nil {
+		// Prüfe, ob der Fehler ein ExitError ist
+		if _, ok := err.(*exec.ExitError); ok {
+			// Exit Code abrufen
+			//exitCode := exitErr.ExitCode()
+			return false, nil
+		} else {
+			return false, err
+		}
+	} else {
+		return true, nil
+	}
 }
