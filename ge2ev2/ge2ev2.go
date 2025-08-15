@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -37,8 +35,6 @@ type Config struct {
 	Agerecipientfile string
 	Agekeyfile       string
 }
-
-const filekeysize = 32
 
 func CreateDataroom(dataroompath string, config Config) {
 
@@ -74,12 +70,6 @@ func CreateDataroom(dataroompath string, config Config) {
 	// Konvertiere []byte in io.Reader
 	reader := bytes.NewReader(jsonFileKey)
 
-	// encrypt Filekeys; old without rclone
-	// err = EncryptAge(recipients, dataroompath+"/.meta/Filekeys", reader)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
 	err = RcloneUpload(recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
 	if err != nil {
 		panic(err)
@@ -114,100 +104,7 @@ func CreateDataroom(dataroompath string, config Config) {
 	// Option 4: Combine Option 1 and 4: Store Filekeys and recipients in one file + store recipients (hash) in immudb + siging ...
 }
 
-// not used any more
 func UploadFile(dataroompath string, file string, config Config) {
-	filekeys := LoadFileKeyFile2(dataroompath, config)
-
-	// check file already exists
-	filename := filepath.Base(file)
-	if _, ok := filekeys.Keys[filename]; ok {
-		fmt.Println("File " + filename + " already exits in dataroom " + dataroompath)
-		os.Exit(0)
-	}
-
-	// increment version
-	filekeys.Version += 1
-
-	// create file key
-	fk := make([]byte, filekeysize)
-	if _, err := rand.Read(fk); err != nil {
-		panic(err)
-	}
-
-	// create random filename
-	fn := make([]byte, 32)
-	if _, err := rand.Read(fn); err != nil {
-		panic(err)
-	}
-
-	filekeys.Keys[filename] = [2]string{hex.EncodeToString(fk), hex.EncodeToString(fn)}
-
-	jsonFileKey, err := json.Marshal(filekeys)
-	if err != nil {
-		panic(err)
-	}
-
-	// create sha256 sum
-	hash := sha256.Sum256(jsonFileKey)
-
-	// encrypt + write file
-	// Öffne die Datei zum Lesen
-	datei, err := os.ReadFile(file)
-	if err != nil {
-		panic(err)
-	}
-
-	block, err := aes.NewCipher(fk)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	aesgcm, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	ivf := make([]byte, aesgcm.NonceSize())
-	if _, err := rand.Read(ivf); err != nil {
-		panic(err)
-	}
-
-	err = os.WriteFile(dataroompath+"/"+hex.EncodeToString(fn), aesgcm.Seal(ivf, ivf, datei, nil), 0777)
-	if err != nil {
-		panic(err)
-	}
-
-	// encrypt + write FileKey File; check recipients file hash missing!!!
-	// Konvertiere []byte in io.Reader
-	reader := bytes.NewReader(jsonFileKey)
-
-	// old without rclone
-	// err = EncryptAge(filekeys.Recipients, dataroompath+"/.meta/Filekeys", reader)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
-	if err != nil {
-		panic(err)
-	}
-
-	// write immudb
-	err = WriteImmmudb(dataroompath, hash[:], config.Immudbserver, config.Immmudbport, []byte(config.Immudbuser), []byte(config.Immudbpassword))
-	if err != nil {
-		// rollback/delete FileKeys
-		fmt.Println("INFO: Due to an immudb error the Filekeys file is deleted again")
-
-		err2 := os.Remove(dataroompath + "/.meta/Filekeyse")
-		if err2 != nil {
-			fmt.Println("Error deleting the file: ", err2)
-		}
-
-		panic(err)
-	}
-}
-
-func UploadFile2(dataroompath string, file string, config Config) {
 	filekeys := LoadFileKeyFile2(dataroompath, config)
 
 	// check file already exists
@@ -258,12 +155,6 @@ func UploadFile2(dataroompath string, file string, config Config) {
 	// Konvertiere []byte in io.Reader
 	reader := bytes.NewReader(jsonFileKey)
 
-	// old without rclone
-	// err = EncryptAge(filekeys.Recipients, dataroompath+"/.meta/Filekeys", reader)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
 	err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
 	if err != nil {
 		panic(err)
@@ -292,63 +183,7 @@ func ShowFiles(dataroompath string, config Config) {
 	}
 }
 
-// not used any more
 func DownloadFile(dataroompath string, filename string, dest string, config Config) {
-	filekeys := LoadFileKeyFile2(dataroompath, config)
-
-	// check file exists
-	filekey, ok := filekeys.Keys[filename]
-	if ok {
-		if !validateFile(dataroompath + "/" + filekey[1]) {
-			fmt.Println("ERROR: File Key exists, but File " + filekey[1] + " not found")
-			os.Exit(1)
-		}
-	} else {
-		fmt.Println("File " + filename + " not found in dataroom " + dataroompath)
-		os.Exit(0)
-	}
-
-	// decrypt file
-	fk, err := hex.DecodeString(filekey[0])
-	if err != nil {
-		panic(err)
-	}
-
-	ciphertext, err := os.ReadFile(dataroompath + "/" + filekey[1])
-	// if our program was unable to read the file
-	// print out the reason why it can't
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	c, err := aes.NewCipher(fk)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	aesgcm, err := cipher.NewGCM(c)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	nonceSize := aesgcm.NonceSize()
-	if len(ciphertext) < nonceSize {
-		fmt.Println(err)
-	}
-
-	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintext, err := aesgcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	err = os.WriteFile(dest+"/"+filename, plaintext, 0644)
-	if err != nil {
-		panic(err)
-	}
-}
-
-func DownloadFile2(dataroompath string, filename string, dest string, config Config) {
 	filekeys := LoadFileKeyFile2(dataroompath, config)
 
 	// check file exists
@@ -435,12 +270,6 @@ func ChangeRecipients(config Config, dataroompath string) {
 	// Konvertiere []byte in io.Reader
 	reader := bytes.NewReader(jsonFileKey)
 
-	// encrypt keyfile with new recipients; old without rclone
-	// err = EncryptAge(recipients, dataroompath+"/.meta/Filekeys", reader)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
 	err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
 	if err != nil {
 		panic(err)
@@ -465,47 +294,6 @@ func ChangeRecipients(config Config, dataroompath string) {
 
 // Helper functions
 
-// not used any more
-func EncryptAge(recipientstrings []string, outputFile string, in io.Reader) error {
-
-	var recipients []age.Recipient
-
-	for _, key := range recipientstrings {
-		// Parsen des Public Keys
-		recipient, err := age.ParseX25519Recipient(key)
-		if err != nil {
-			return fmt.Errorf("failed to parse recipient %s: %v", key, err)
-		}
-
-		// Hinzufügen des Recipients zum Slice
-		recipients = append(recipients, recipient)
-	}
-
-	// Erstellen der Ausgabedatei
-	outFile, err := os.Create(outputFile)
-	if err != nil {
-		return fmt.Errorf("failed to create output file: %v", err)
-	}
-	defer outFile.Close()
-
-	w, err := age.Encrypt(outFile, recipients...)
-	if err != nil {
-		return fmt.Errorf("Failed to create encrypted file: %v", err)
-	}
-
-	// Kopieren der Daten von der Eingabedatei in den Verschlüsselungsstream
-	if _, err := io.Copy(w, in); err != nil {
-		return fmt.Errorf("failed to encrypt file: %v", err)
-	}
-
-	// Schließen des Verschlüsselungsstreams
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("failed to close encryption stream: %v", err)
-	}
-
-	return nil
-}
-
 func EncryptAge2(recipientstrings []string, out io.WriteCloser, in io.Reader) error {
 
 	defer out.Close()
@@ -524,7 +312,7 @@ func EncryptAge2(recipientstrings []string, out io.WriteCloser, in io.Reader) er
 
 	w, err := age.Encrypt(out, recipients...)
 	if err != nil {
-		return fmt.Errorf("Failed to create encrypted file: %v", err)
+		return fmt.Errorf("failed to create encrypted file: %v", err)
 	}
 
 	// Kopieren der Daten von der Eingabedatei in den Verschlüsselungsstream
@@ -546,7 +334,7 @@ func EncryptAge3(recipient age.Recipient, out io.WriteCloser, in io.Reader) erro
 
 	w, err := age.Encrypt(out, recipient)
 	if err != nil {
-		return fmt.Errorf("Failed to create encrypted file: %v", err)
+		return fmt.Errorf("failed to create encrypted file: %v", err)
 	}
 
 	// Kopieren der Daten von der Eingabedatei in den Verschlüsselungsstream
@@ -570,7 +358,7 @@ func DecryptAge(keyfile string, file io.Reader) (io.Reader, error) {
 
 	identity, err := age.ParseX25519Identity(strings.TrimSuffix(string(key), "\n"))
 	if err != nil {
-		return nil, fmt.Errorf("Failed to parse private key: %v", err)
+		return nil, fmt.Errorf("failed to parse private key: %v", err)
 	}
 
 	// f, err := os.Open(file)

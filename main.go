@@ -113,7 +113,7 @@ func uploadHandle(config ge2ev2.Config) {
 		os.Exit(1)
 	}
 
-	ge2ev2.UploadFile2(dataroompath, file, config)
+	ge2ev2.UploadFile(dataroompath, file, config)
 }
 
 func lsHandle(config ge2ev2.Config) {
@@ -165,7 +165,7 @@ func downHandle(config ge2ev2.Config) {
 		os.Exit(1)
 	}
 
-	ge2ev2.DownloadFile2(dataroompath, filename, dest2, config)
+	ge2ev2.DownloadFile(dataroompath, filename, dest2, config)
 }
 
 func chrecHandle(config ge2ev2.Config) {
