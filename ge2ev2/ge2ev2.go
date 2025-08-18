@@ -41,7 +41,8 @@ func CreateDataroom(dataroompath string, config Config) {
 	// read recipients file
 	recfile, err := os.Open(config.Agerecipientfile)
 	if err != nil {
-		panic(err)
+		fmt.Println("cannot open recipient file: ", err)
+		os.Exit(1)
 	}
 	defer recfile.Close()
 
@@ -179,14 +180,14 @@ func ShowFiles(dataroompath string, config Config) {
 	filekeys := LoadFileKeyFile2(dataroompath, config)
 
 	for key := range filekeys.Keys {
-		fmt.Println(key)
+		fmt.Println(dataroompath + "/" + key)
 	}
 }
 
 func DownloadFile(dataroompath string, filename string, dest string, config Config) {
 	filekeys := LoadFileKeyFile2(dataroompath, config)
 
-	// check file exists
+	// check file exists ausbessern
 	filekey, ok := filekeys.Keys[filename]
 	if ok {
 		if !validateFile(dataroompath + "/" + filekey[1]) {
@@ -232,6 +233,69 @@ func DownloadFile(dataroompath string, filename string, dest string, config Conf
 
 	if err := cmd.Wait(); err != nil {
 		panic(err)
+	}
+}
+
+func DeleteFile(dataroompath string, filename string, config Config) {
+	filekeys := LoadFileKeyFile2(dataroompath, config)
+
+	filekey, ok := filekeys.Keys[filename]
+	if ok {
+		// delete filekeys entry
+		delete(filekeys.Keys, filename)
+
+		jsonFileKey, err := json.Marshal(filekeys)
+		if err != nil {
+			fmt.Println("Unexpected error: ", err)
+			os.Exit(1)
+		}
+
+		// create sha256 sum
+		hash := sha256.Sum256(jsonFileKey)
+
+		// encrypt + write FileKey File; check recipients file hash missing!!!
+		// Konvertiere []byte in io.Reader
+		reader := bytes.NewReader(jsonFileKey)
+
+		err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
+		if err != nil {
+			// ToDo: rollback
+			fmt.Println("Error writing Filekeys file: ", err)
+			os.Exit(1)
+		}
+
+		cmd := exec.Command("rclone", "deletefile", config.Rcloneremote+":"+dataroompath+"/"+filekey[1])
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			// Prüfe, ob der Fehler ein ExitError ist
+			if _, ok := err.(*exec.ExitError); ok {
+				fmt.Println("Error: ", string(output))
+				os.Exit(1)
+			} else {
+				fmt.Println("Unexpected error: ", err)
+				os.Exit(1)
+			}
+		}
+
+		// upload filekeys file
+
+		// write immudb
+		err = WriteImmmudb(dataroompath, hash[:], config.Immudbserver, config.Immmudbport, []byte(config.Immudbuser), []byte(config.Immudbpassword))
+		if err != nil {
+			// ToDo: rollback/delete FileKeys
+		}
+	} else {
+		fmt.Println("File " + filename + " not found in dataroom " + dataroompath)
+		os.Exit(0)
+	}
+}
+
+func ListRecipients(dataroompath string, config Config) {
+	filekeys := LoadFileKeyFile2(dataroompath, config)
+
+	for _, rec := range filekeys.Recipients {
+		fmt.Println(rec)
 	}
 }
 
@@ -588,3 +652,11 @@ func LoadFileKeyFile2(dataroompath string, config Config) FileKeys {
 
 	return filekeys
 }
+
+// ToDo: - error handling
+//		 - doku
+// 		- consider brotobuf
+//		- overwrite file
+//		- other age recipient types
+//		- lock file
+//		- rollback for upload + delete

@@ -17,6 +17,8 @@ const usage = `Usage:
 	ge2ev2 [-c config file] upload FILE_PATH DATAROOM_PATH
 	ge2ev2 [-c config file] ls DATAROOM_PATH
 	ge2ev2 [-c config file] download FILE_PATH DESTINATION
+	ge2ev2 [-c config file] rm FILE_PATH
+	ge2ev2 [-c config file] lsrec DATAROOM_PATH
 	ge2ev2 [-c config file] chrec DATAROOM_PATH
 	
 Options:
@@ -33,8 +35,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	var config ge2ev2.Config
-	config = readConfig(*configFlag)
+	var config ge2ev2.Config = readConfig(*configFlag)
 
 	function := flag.Arg(0)
 
@@ -50,6 +51,10 @@ func main() {
 		lsHandle(config)
 	case "download":
 		downHandle(config)
+	case "rm":
+		rmHandle(config)
+	case "lsrec":
+		lsrecHandle(config)
 	case "chrec":
 		chrecHandle(config)
 	default:
@@ -66,6 +71,11 @@ func mkdrHandle(config ge2ev2.Config) {
 
 	dataroompath := flag.Arg(1)
 
+	if !validateFile(config.Agerecipientfile) {
+		fmt.Println("Recipient file " + config.Agerecipientfile + " not found")
+		os.Exit(1)
+	}
+
 	if ok, err := validateDR(config.Rcloneremote + ":" + dataroompath); err != nil {
 		fmt.Println("Unexpected error: ", err)
 		os.Exit(1)
@@ -74,7 +84,7 @@ func mkdrHandle(config ge2ev2.Config) {
 		os.Exit(1)
 	}
 
-	cmd := exec.Command("rclone", "mkdir", config.Rcloneremote+"xsa:"+dataroompath+"/.meta")
+	cmd := exec.Command("rclone", "mkdir", config.Rcloneremote+":"+dataroompath+"/.meta")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -166,6 +176,51 @@ func downHandle(config ge2ev2.Config) {
 	}
 
 	ge2ev2.DownloadFile(dataroompath, filename, dest2, config)
+}
+
+func rmHandle(config ge2ev2.Config) {
+	if len(flag.Args()) != 2 {
+		fmt.Println(usage)
+		os.Exit(0)
+	}
+
+	file := flag.Arg(1)
+	filename := filepath.Base(file)
+	dataroompath := filepath.Dir(file)
+
+	if dataroompath == "." {
+		fmt.Println("Use a valid dataroom")
+		os.Exit(1)
+	}
+
+	if ok, err := validateDR(config.Rcloneremote + ":" + dataroompath); err != nil {
+		fmt.Println("Unexpected error: ", err)
+		os.Exit(1)
+	} else if !ok {
+		fmt.Println("Dataroom " + dataroompath + " not found")
+		os.Exit(1)
+	}
+
+	ge2ev2.DeleteFile(dataroompath, filename, config)
+}
+
+func lsrecHandle(config ge2ev2.Config) {
+	if len(flag.Args()) != 2 {
+		fmt.Println(usage)
+		os.Exit(0)
+	}
+
+	dataroompath := flag.Arg(1)
+
+	if ok, err := validateDR(config.Rcloneremote + ":" + dataroompath); err != nil {
+		fmt.Println("Unexpected error: ", err)
+		os.Exit(1)
+	} else if !ok {
+		fmt.Println("Dataroom " + dataroompath + " not found")
+		os.Exit(1)
+	}
+
+	ge2ev2.ListRecipients(dataroompath, config)
 }
 
 func chrecHandle(config ge2ev2.Config) {
