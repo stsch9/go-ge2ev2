@@ -257,6 +257,7 @@ func DeleteFile(dataroompath string, filename string, config Config) {
 		// Konvertiere []byte in io.Reader
 		reader := bytes.NewReader(jsonFileKey)
 
+		// upload filekeys file
 		err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
 		if err != nil {
 			// ToDo: rollback
@@ -264,6 +265,7 @@ func DeleteFile(dataroompath string, filename string, config Config) {
 			os.Exit(1)
 		}
 
+		// delete file via rclone
 		cmd := exec.Command("rclone", "deletefile", config.Rcloneremote+":"+dataroompath+"/"+filekey[1])
 
 		output, err := cmd.CombinedOutput()
@@ -277,8 +279,6 @@ func DeleteFile(dataroompath string, filename string, config Config) {
 				os.Exit(1)
 			}
 		}
-
-		// upload filekeys file
 
 		// write immudb
 		err = WriteImmmudb(dataroompath, hash[:], config.Immudbserver, config.Immmudbport, []byte(config.Immudbuser), []byte(config.Immudbpassword))

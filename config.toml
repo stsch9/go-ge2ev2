@@ -1,7 +1,7 @@
 immudbserver = "127.0.0.1"
 immmudbport = 3322
 immudbuser = "immudb"
-immudbpassword = "Qwer1234!"
+immudbpassword = "immudb"
 rcloneremote = "test"
 agerecipientfile = "./recipient_file"
 agekeyfile = "./key"
