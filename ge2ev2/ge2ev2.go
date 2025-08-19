@@ -38,7 +38,7 @@ type Config struct {
 
 func CreateDataroom(dataroompath string, config Config) {
 
-	// read recipients file
+	// read local recipients file
 	recfile, err := os.Open(config.Agerecipientfile)
 	if err != nil {
 		fmt.Println("cannot open recipient file: ", err)
@@ -54,7 +54,8 @@ func CreateDataroom(dataroompath string, config Config) {
 	}
 
 	if err = scanner.Err(); err != nil {
-		panic(err)
+		fmt.Println("unexpected error: ", err)
+		os.Exit(1)
 	}
 
 	// Create FileKey File
@@ -62,7 +63,8 @@ func CreateDataroom(dataroompath string, config Config) {
 	fk := FileKeys{1, k, recipients}
 	jsonFileKey, err := json.Marshal(fk)
 	if err != nil {
-		panic(err)
+		fmt.Println("unexpected error: ", err)
+		os.Exit(1)
 	}
 
 	// create sha256 sum
@@ -71,9 +73,11 @@ func CreateDataroom(dataroompath string, config Config) {
 	// Konvertiere []byte in io.Reader
 	reader := bytes.NewReader(jsonFileKey)
 
+	// upload filekeys file
 	err = RcloneUpload(recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
 	if err != nil {
-		panic(err)
+		fmt.Println("Error uploading Filekeys file: ", err)
+		os.Exit(1)
 	}
 
 	// write immudb
@@ -106,7 +110,7 @@ func CreateDataroom(dataroompath string, config Config) {
 }
 
 func UploadFile(dataroompath string, file string, config Config) {
-	filekeys := LoadFileKeyFile2(dataroompath, config)
+	filekeys := LoadFileKeyFile(dataroompath, config)
 
 	// check file already exists
 	filename := filepath.Base(file)
@@ -121,20 +125,23 @@ func UploadFile(dataroompath string, file string, config Config) {
 	// create file key
 	identity, err := age.GenerateX25519Identity()
 	if err != nil {
-		panic(err)
+		fmt.Println("unexpected error: ", err)
+		os.Exit(1)
 	}
 
 	// create random filename
 	fn := make([]byte, 32)
 	if _, err := rand.Read(fn); err != nil {
-		panic(err)
+		fmt.Println("unexpected error: ", err)
+		os.Exit(1)
 	}
 
 	filekeys.Keys[filename] = [2]string{identity.String(), hex.EncodeToString(fn)}
 
 	jsonFileKey, err := json.Marshal(filekeys)
 	if err != nil {
-		panic(err)
+		fmt.Println("unexpected error: ", err)
+		os.Exit(1)
 	}
 
 	// create sha256 sum
@@ -144,12 +151,14 @@ func UploadFile(dataroompath string, file string, config Config) {
 	// Öffne die Datei zum Lesen
 	readerfile, err := os.Open(file)
 	if err != nil {
-		panic(err)
+		fmt.Println("unexpected error: ", err)
+		os.Exit(1)
 	}
 
 	err = RcloneUploadSingle(identity.Recipient(), readerfile, config.Rcloneremote, dataroompath+"/"+hex.EncodeToString(fn))
 	if err != nil {
-		panic(err)
+		fmt.Println("Error uploading file: ", err)
+		os.Exit(1)
 	}
 
 	// encrypt + write FileKey File; check recipients file hash missing!!!
@@ -158,26 +167,21 @@ func UploadFile(dataroompath string, file string, config Config) {
 
 	err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
 	if err != nil {
-		panic(err)
+		fmt.Println("Error uploading Filekeys file: ", err)
+		os.Exit(1)
 	}
 
 	// write immudb
 	err = WriteImmmudb(dataroompath, hash[:], config.Immudbserver, config.Immmudbport, []byte(config.Immudbuser), []byte(config.Immudbpassword))
 	if err != nil {
 		// rollback/delete FileKeys
+		// ToDo!!!
 		fmt.Println("INFO: Due to an immudb error the Filekeys file is deleted again")
-
-		err2 := os.Remove(dataroompath + "/.meta/Filekeyse")
-		if err2 != nil {
-			fmt.Println("Error deleting the file: ", err2)
-		}
-
-		panic(err)
 	}
 }
 
 func ShowFiles(dataroompath string, config Config) {
-	filekeys := LoadFileKeyFile2(dataroompath, config)
+	filekeys := LoadFileKeyFile(dataroompath, config)
 
 	for key := range filekeys.Keys {
 		fmt.Println(dataroompath + "/" + key)
@@ -185,59 +189,61 @@ func ShowFiles(dataroompath string, config Config) {
 }
 
 func DownloadFile(dataroompath string, filename string, dest string, config Config) {
-	filekeys := LoadFileKeyFile2(dataroompath, config)
+	filekeys := LoadFileKeyFile(dataroompath, config)
 
 	// check file exists ausbessern
 	filekey, ok := filekeys.Keys[filename]
 	if ok {
-		if !validateFile(dataroompath + "/" + filekey[1]) {
-			fmt.Println("ERROR: File Key exists, but File " + filekey[1] + " not found")
+		// decrypt file
+		f, err := os.Create(dest + "/" + filename)
+		if err != nil {
+			fmt.Println("unexpected error: ", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+
+		identity, err := age.ParseX25519Identity(filekey[0])
+		if err != nil {
+			fmt.Println("unexpected error: ", err)
+			os.Exit(1)
+		}
+
+		cmd := exec.Command("rclone", "cat", config.Rcloneremote+":"+dataroompath+"/"+filekey[1])
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			fmt.Println("unexpected error: ", err)
+			os.Exit(1)
+		}
+
+		if err := cmd.Start(); err != nil {
+			fmt.Println("unexpected error: ", err)
+			os.Exit(1)
+		}
+
+		fkreader, err := DecryptAge2(identity, stdout)
+		if err != nil {
+			fmt.Println("unexpected error: ", err)
+			os.Exit(1)
+		}
+
+		if _, err := io.Copy(f, fkreader); err != nil {
+			fmt.Println("unexpected error: ", err)
+			os.Exit(1)
+		}
+
+		if err := cmd.Wait(); err != nil {
+			fmt.Println("unexpected error: ", err)
 			os.Exit(1)
 		}
 	} else {
 		fmt.Println("File " + filename + " not found in dataroom " + dataroompath)
 		os.Exit(0)
 	}
-
-	// decrypt file
-	f, err := os.Create(dest + "/" + filename)
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-
-	identity, err := age.ParseX25519Identity(filekey[0])
-	if err != nil {
-		panic(err)
-	}
-
-	cmd := exec.Command("rclone", "cat", config.Rcloneremote+":"+dataroompath+"/"+filekey[1])
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		panic(err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		panic(err)
-	}
-
-	fkreader, err := DecryptAge2(identity, stdout)
-	if err != nil {
-		panic(err)
-	}
-
-	if _, err := io.Copy(f, fkreader); err != nil {
-		panic(err)
-	}
-
-	if err := cmd.Wait(); err != nil {
-		panic(err)
-	}
 }
 
 func DeleteFile(dataroompath string, filename string, config Config) {
-	filekeys := LoadFileKeyFile2(dataroompath, config)
+	filekeys := LoadFileKeyFile(dataroompath, config)
 
 	filekey, ok := filekeys.Keys[filename]
 	if ok {
@@ -292,7 +298,7 @@ func DeleteFile(dataroompath string, filename string, config Config) {
 }
 
 func ListRecipients(dataroompath string, config Config) {
-	filekeys := LoadFileKeyFile2(dataroompath, config)
+	filekeys := LoadFileKeyFile(dataroompath, config)
 
 	for _, rec := range filekeys.Recipients {
 		fmt.Println(rec)
@@ -304,7 +310,8 @@ func ChangeRecipients(config Config, dataroompath string) {
 	// read new recipients file
 	recfile, err := os.Open(config.Agerecipientfile)
 	if err != nil {
-		panic(err)
+		fmt.Println("Cannot open recipeint file "+config.Agerecipientfile+": ", err)
+		os.Exit(0)
 	}
 	defer recfile.Close()
 
@@ -316,16 +323,18 @@ func ChangeRecipients(config Config, dataroompath string) {
 	}
 
 	if err = scanner.Err(); err != nil {
-		panic(err)
+		fmt.Println("Unexpected error: ", err)
+		os.Exit(1)
 	}
 
-	filekeys := LoadFileKeyFile2(dataroompath, config)
+	filekeys := LoadFileKeyFile(dataroompath, config)
 
 	filekeys.Recipients = recipients
 
 	jsonFileKey, err := json.Marshal(filekeys)
 	if err != nil {
-		panic(err)
+		fmt.Println("Unexpected decryption error: ", err)
+		os.Exit(1)
 	}
 
 	// create sha256 sum
@@ -336,7 +345,8 @@ func ChangeRecipients(config Config, dataroompath string) {
 
 	err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
 	if err != nil {
-		panic(err)
+		fmt.Println("Error uploading Filekeys file: ", err)
+		os.Exit(1)
 	}
 
 	// create hash of recipients file and store it in immudb
@@ -425,42 +435,21 @@ func DecryptAge(keyfile string, file io.Reader) (io.Reader, error) {
 		return nil, fmt.Errorf("failed to parse private key: %v", err)
 	}
 
-	// f, err := os.Open(file)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("Failed to open file: %v", err)
-	// }
-	// defer f.Close()
-
 	r, err := age.Decrypt(file, identity)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to open encrypted file: %v", err)
+		return nil, fmt.Errorf("failed to open encrypted file: %v", err)
 	}
 
 	return r, nil
 }
 
 func DecryptAge2(identity age.Identity, file io.Reader) (io.Reader, error) {
-
-	// f, err := os.Open(file)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("Failed to open file: %v", err)
-	// }
-	// defer f.Close()
-
 	r, err := age.Decrypt(file, identity)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to open encrypted file: %v", err)
+		return nil, fmt.Errorf("failed to open encrypted file: %v", err)
 	}
 
 	return r, nil
-}
-
-func validateFile(file string) bool {
-	if _, err := os.Stat(file); os.IsNotExist(err) {
-		return false
-	}
-
-	return true
 }
 
 func WriteImmmudb(key string, hash []byte, immudbserver string, immudbport int, immudbuser []byte, immudbpw []byte) error {
@@ -514,54 +503,6 @@ func ReadImmudb(key string, immudbserver string, immudbport int, immudbuser []by
 	return entry.Value, nil
 }
 
-func LoadFileKeyFileLocal(dataroompath string, config Config) FileKeys {
-	// read hash from immudb
-	expectedhash, err := ReadImmudb(dataroompath, config.Immudbserver, config.Immmudbport, []byte(config.Immudbuser), []byte(config.Immudbpassword))
-	if err != nil {
-		//return nil, fmt.Errorf("Failed to open file: %v", err)
-		fmt.Println("Error: Reading from immudb: ", err)
-		os.Exit(1)
-	}
-
-	// decrypting Filekeys
-	out := &bytes.Buffer{}
-
-	// old without rclone
-	f, err := os.Open(dataroompath + "/.meta/Filekeys")
-	if err != nil {
-		//return nil, fmt.Errorf("Failed to open file: %v", err)
-		panic(err)
-	}
-	defer f.Close()
-
-	fkreader, err := DecryptAge(config.Agekeyfile, f)
-	if err != nil {
-		panic(err)
-	}
-
-	if _, err := io.Copy(out, fkreader); err != nil {
-		panic(err)
-	}
-
-	// compare hashes
-	actualhash := sha256.Sum256(out.Bytes())
-	if bytes.Equal(expectedhash, []byte(hex.EncodeToString(actualhash[:]))) {
-		fmt.Println("INFO: hash validation was successful")
-	} else {
-		fmt.Println("ERROR: hash validation failed")
-		os.Exit(1)
-	}
-
-	var filekeys FileKeys
-
-	err = json.Unmarshal(out.Bytes(), &filekeys)
-	if err != nil {
-		panic(err)
-	}
-
-	return filekeys
-}
-
 func RcloneUpload(recipientstrings []string, in io.Reader, remote string, path string) error {
 	cmd := exec.Command("rclone", "rcat", remote+":"+path)
 
@@ -598,7 +539,7 @@ func RcloneUploadSingle(recipient age.Recipient, in io.Reader, remote string, pa
 	return nil
 }
 
-func LoadFileKeyFile2(dataroompath string, config Config) FileKeys {
+func LoadFileKeyFile(dataroompath string, config Config) FileKeys {
 	// read hash from immudb
 	expectedhash, err := ReadImmudb(dataroompath, config.Immudbserver, config.Immmudbport, []byte(config.Immudbuser), []byte(config.Immudbpassword))
 	if err != nil {
@@ -614,24 +555,29 @@ func LoadFileKeyFile2(dataroompath string, config Config) FileKeys {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		panic(err)
+		fmt.Println("Unexpected error: ", err)
+		os.Exit(1)
 	}
 
 	if err := cmd.Start(); err != nil {
-		panic(err)
+		fmt.Println("Unexpected error: ", err)
+		os.Exit(1)
 	}
 
 	fkreader, err := DecryptAge(config.Agekeyfile, stdout)
 	if err != nil {
-		panic(err)
+		fmt.Println("Unexpected decryption error: ", err)
+		os.Exit(1)
 	}
 
 	if _, err := io.Copy(out, fkreader); err != nil {
-		panic(err)
+		fmt.Println("Unexpected error: ", err)
+		os.Exit(1)
 	}
 
 	if err := cmd.Wait(); err != nil {
-		panic(err)
+		fmt.Println("Unexpected decryption error: ", err)
+		os.Exit(1)
 	}
 
 	// compare hashes
@@ -647,13 +593,14 @@ func LoadFileKeyFile2(dataroompath string, config Config) FileKeys {
 
 	err = json.Unmarshal(out.Bytes(), &filekeys)
 	if err != nil {
-		panic(err)
+		fmt.Println("Unexpected decryption error: ", err)
+		os.Exit(1)
 	}
 
 	return filekeys
 }
 
-// ToDo: - error handling
+// ToDo:
 //		 - doku
 // 		- consider brotobuf
 //		- overwrite file
