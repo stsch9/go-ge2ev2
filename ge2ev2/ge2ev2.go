@@ -145,67 +145,67 @@ func UploadFile(dataroompath string, file string, config Config) {
 	filename := filepath.Base(file)
 	if _, ok := filekeys.Keys[filename]; ok {
 		fmt.Println("File " + filename + " already exits in dataroom " + dataroompath)
-		os.Exit(0)
-	}
+	} else {
 
-	// increment version
-	filekeys.Version += 1
+		// increment version
+		filekeys.Version += 1
 
-	// create file key
-	identity, err := age.GenerateX25519Identity()
-	if err != nil {
-		fmt.Println("unexpected error: ", err)
-		os.Exit(1)
-	}
+		// create file key
+		identity, err := age.GenerateX25519Identity()
+		if err != nil {
+			fmt.Println("unexpected error: ", err)
+			os.Exit(1)
+		}
 
-	// create random filename
-	fn := make([]byte, 32)
-	if _, err := rand.Read(fn); err != nil {
-		fmt.Println("unexpected error: ", err)
-		os.Exit(1)
-	}
+		// create random filename
+		fn := make([]byte, 32)
+		if _, err := rand.Read(fn); err != nil {
+			fmt.Println("unexpected error: ", err)
+			os.Exit(1)
+		}
 
-	filekeys.Keys[filename] = [2]string{identity.String(), hex.EncodeToString(fn)}
+		filekeys.Keys[filename] = [2]string{identity.String(), hex.EncodeToString(fn)}
 
-	jsonFileKey, err := json.Marshal(filekeys)
-	if err != nil {
-		fmt.Println("unexpected error: ", err)
-		os.Exit(1)
-	}
+		jsonFileKey, err := json.Marshal(filekeys)
+		if err != nil {
+			fmt.Println("unexpected error: ", err)
+			os.Exit(1)
+		}
 
-	// create sha256 sum
-	hash := sha256.Sum256(jsonFileKey)
+		// create sha256 sum
+		hash := sha256.Sum256(jsonFileKey)
 
-	// encrypt + write file
-	// Öffne die Datei zum Lesen
-	readerfile, err := os.Open(file)
-	if err != nil {
-		fmt.Println("unexpected error: ", err)
-		os.Exit(1)
-	}
+		// encrypt + write file
+		// Öffne die Datei zum Lesen
+		readerfile, err := os.Open(file)
+		if err != nil {
+			fmt.Println("unexpected error: ", err)
+			os.Exit(1)
+		}
 
-	err = RcloneUploadSingle(identity.Recipient(), readerfile, config.Rcloneremote, dataroompath+"/"+hex.EncodeToString(fn))
-	if err != nil {
-		fmt.Println("Error uploading file: ", err)
-		os.Exit(1)
-	}
+		err = RcloneUploadSingle(identity.Recipient(), readerfile, config.Rcloneremote, dataroompath+"/"+hex.EncodeToString(fn))
+		if err != nil {
+			fmt.Println("Error uploading file: ", err)
+			os.Exit(1)
+		}
 
-	// encrypt + write FileKey File; check recipients file hash missing!!!
-	// Konvertiere []byte in io.Reader
-	reader := bytes.NewReader(jsonFileKey)
+		// encrypt + write FileKey File; check recipients file hash missing!!!
+		// Konvertiere []byte in io.Reader
+		reader := bytes.NewReader(jsonFileKey)
 
-	err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
-	if err != nil {
-		fmt.Println("Error uploading Filekeys file: ", err)
-		os.Exit(1)
-	}
+		err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
+		if err != nil {
+			fmt.Println("Error uploading Filekeys file: ", err)
+			os.Exit(1)
+		}
 
-	// write immudb
-	err = WriteImmmudb(dataroompath, hash[:], config.Immudbserver, config.Immmudbport, []byte(config.Immudbuser), []byte(config.Immudbpassword))
-	if err != nil {
-		// rollback/delete FileKeys
-		// ToDo!!!
-		fmt.Println("INFO: Due to an immudb error the Filekeys file is deleted again")
+		// write immudb
+		err = WriteImmmudb(dataroompath, hash[:], config.Immudbserver, config.Immmudbport, []byte(config.Immudbuser), []byte(config.Immudbpassword))
+		if err != nil {
+			// rollback/delete FileKeys
+			// ToDo!!!
+			fmt.Println("INFO: Due to an immudb error the Filekeys file is deleted again")
+		}
 	}
 
 	// delete Lock File
