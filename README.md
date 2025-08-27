@@ -6,7 +6,7 @@ This is a tool for storing data on untrusted storage and sharing it with other p
 However, the administration of larger groups can become complex. This is where protocols such as [MLS](https://datatracker.ietf.org/doc/rfc9420/), which ensures the agreement and distribution of a shared key, would be of greater benefit:
 > The core functionality of MLS is continuous group authenticated key exchange (AKE). As with other authenticated key exchange protocols (such as TLS), the participants in the protocol agree on a common secret value, and each participant can verify the identity of the other participants. That secret can then be used to protect messages sent from one participant in the group to the other participants using the MLS framing layer or can be exported for use with other protocols. ...
 
-For encryption and decryption the tool [age](https://github.com/FiloSottile/age) is used. All meta information are stored in a file called `FileKeys`. This file is then encrypted to the age recipients (to all group memmbers) and stored on the storage. This means that anyone who can decrypt this file (all age recipients/group members) can also decrypt the files stored on the storage. 
+For encryption and decryption the tool [age](https://github.com/FiloSottile/age) is used. All meta information are stored in a file called `FileKeys`. This file is then encrypted to the age recipients (to all group members) and stored on the storage. This means that anyone who can decrypt this file (all age recipients/group members) can also decrypt the files stored on the storage. 
 
 The following information is stored in the FileKeys file:
 - The Version of the FileKeys file
