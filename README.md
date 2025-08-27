@@ -2,8 +2,9 @@
 
 **WARNING**: This is just a PoC. Use at your own risk.
 
-This is a tool for storing data on untrusted storage and sharing it with other people. The client-side encryption is only one necessary feature. The secure distribution of the keys is a much greater challenge (see https://securitycryptographywhatever.com/2025/05/19/e2ee-storage/). It should be possible to change the group of people who have access to the files at any time. With this tool, the distribution of keys is controlled completely by the group members. This is a difference to many other cloud storage providers. 
-However, the administration of larger groups can become complex. This is where protocols such as [MLS](https://datatracker.ietf.org/doc/rfc9420/), which ensures the agreement and distribution of a shared key, would be of greater benefit.
+This is a tool for storing data on untrusted storage and sharing it with other people. Client-side encryption is therefore a necessary feature, but not the only one. The secure distribution of the keys is a much greater challenge (see https://securitycryptographywhatever.com/2025/05/19/e2ee-storage/). It should be possible to change the group of people who have access to the files at any time. With this tool, the distribution of keys is controlled completely by the group members. This is a difference to many other cloud storage providers. 
+However, the administration of larger groups can become complex. This is where protocols such as [MLS](https://datatracker.ietf.org/doc/rfc9420/), which ensures the agreement and distribution of a shared key, would be of greater benefit:
+> The core functionality of MLS is continuous group authenticated key exchange (AKE). As with other authenticated key exchange protocols (such as TLS), the participants in the protocol agree on a common secret value, and each participant can verify the identity of the other participants. That secret can then be used to protect messages sent from one participant in the group to the other participants using the MLS framing layer or can be exported for use with other protocols. ...
 
 For encryption and decryption the tool [age](https://github.com/FiloSottile/age) is used. All meta information are stored in a file called `FileKeys`. This file is then encrypted to the age recipients (to all group memmbers) and stored on the storage. This means that anyone who can decrypt this file (all age recipients/group members) can also decrypt the files stored on the storage. 
 
@@ -28,7 +29,7 @@ The following information is stored in the FileKeys file:
 
 If the age recipients (the group members) change, only this file needs to be re-encrypted. All age recipients are also included in the `FileKeys` file, because when a change is made (e.g. new files are uploaded) the `FileKeys` file must also be updated and re-encrypted. The new `FileKeys` file is then encrypted to the age recipients contained in the FileKeys file.
 
-In order to validate the change to the FileKeys file, the SHA256 hash is generated from the plain text FileKeys file and saved in [immudb](https://github.com/codenotary/immudb) each time a change is made. Immudb is used, since it is immutable: History is preserved and can't be changed without clients noticing.
+In order to validate the change to the FileKeys file, the SHA256 hash is generated from the plain text `FileKeys` file and saved in [immudb](https://github.com/codenotary/immudb) each time a change is made. Immudb is used, since it is immutable: History is preserved and can't be changed without clients noticing.
 
 
 ## Possible attackers
@@ -36,17 +37,46 @@ In order to validate the change to the FileKeys file, the SHA256 hash is generat
 - Since all data are client-side encrypted on the storage, an attacker who can monitor the network traffic cannot obtain any information.
 - An attacker who can manipulate network traffic is also detected, as any changes to the encrypted files are also detected thanks to age encryption.
 
+## Limitations
+
+## Dependencies
+You must install the [rclone](https://rclone.org/) tool. And you need a working [immudb](https://github.com/codenotary/immudb) installation.
+
+## Installation
+Clone the git Repository and and execute the command
+```
+cd go-ge2ev2 && go build -o go-ge2ev2 main.go
+```
 
 ## How it works
 ### Dataroom creation
-...
+```
+go-ge2ev2 mkdr DATAROOM_NAME
+```
 ### File upload
+```
+go-ge2ev2 upload /PATH/TO/LOCAL/FILE DATAROOM_NAME
+```
 ...
 ### File download
+```
+go-ge2ev2 download DATAROOM_NAME/FILE_NAME /LOCAL/PATH
+```
 ...
 ### File deletion
+```
+go-ge2ev2 rm DATAROOM_NAME/FILE_NAME
+```
 ...
 ### List files
-...
+```
+go-ge2ev2 ls DATAROOM_NAME
+```
+### List Recipients
+```
+go-ge2ev2 lsrec DATAROOM_NAME
+```
 ### Change group members
-...
+```
+go-ge2ev2 chrec DATAROOM_NAME
+```
