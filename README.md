@@ -47,36 +47,70 @@ Clone the git Repository and and execute the command
 ```
 cd go-ge2ev2 && go build -o go-ge2ev2 main.go
 ```
+## Configuration
 
 ## How it works
 ### Dataroom creation
 ```
 go-ge2ev2 mkdr DATAROOM_NAME
 ```
+- Creating the `FileKeys` file
+- Computing the SHA256 hash sum of the cleartext `FileKeys` file
+- Storing the SHA256 hash sum in immudb
+- Encrypting the `FileKeys` file for all recipients
+- Uploading the `FileKeys` file
 ### File upload
 ```
 go-ge2ev2 upload /PATH/TO/LOCAL/FILE DATAROOM_NAME
 ```
-...
+- Downloading and decrypting (withe the personal age key) the `FileKeys` file
+- Computing the SHA256 hash sum of the cleartext `FileKeys` file and comparing it with the hash sum stored in immudb.
+- Generating a random file key (age private key) and a random file name and updating `FileKeys` file
+- Computing the SHA256 hash sum of the cleartext `FileKeys` file
+- Storing the SHA256 hash sum in immudb
+- Encrypting the `FileKeys` file for all recipients
+- Uploading the `FileKeys` file and the file with the random file name
 ### File download
 ```
 go-ge2ev2 download DATAROOM_NAME/FILE_NAME /LOCAL/PATH
 ```
-...
+- Downloading and decrypting (withe the personal age key) the `FileKeys` file
+- Computing the SHA256 hash sum of the cleartext `FileKeys` file and comparing it with the hash sum stored in immudb.
+- Downloading the file the with the actual file name
 ### File deletion
 ```
 go-ge2ev2 rm DATAROOM_NAME/FILE_NAME
 ```
-...
+- Downloading and decrypting (withe the personal age key) the `FileKeys` file
+- Computing the SHA256 hash sum of the cleartext `FileKeys` file and comparing it with the hash sum stored in immudb.
+- Deleting file in `FileKeys` file
+- Computing the SHA256 hash sum of the cleartext `FileKeys` file
+- Storing the SHA256 hash sum in immudb
+- Encrypting the `FileKeys` file for all recipients
+- Uploading the `FileKeys` file
+- Deleting the file on the storage
 ### List files
 ```
 go-ge2ev2 ls DATAROOM_NAME
 ```
+- Downloading and decrypting (withe the personal age key) the `FileKeys` file
+- Computing the SHA256 hash sum of the cleartext `FileKeys` file and comparing it with the hash sum stored in immudb.
+- Listing all file in `FileKeys` file
 ### List Recipients
 ```
 go-ge2ev2 lsrec DATAROOM_NAME
 ```
+- Downloading and decrypting (withe the personal age key) the `FileKeys` file
+- Computing the SHA256 hash sum of the cleartext `FileKeys` file and comparing it with the hash sum stored in immudb.
+- Listing all recipients in `FileKeys` file
 ### Change group members
 ```
 go-ge2ev2 chrec DATAROOM_NAME
 ```
+- Downloading and decrypting (withe the personal age key) the `FileKeys` file
+- Computing the SHA256 hash sum of the cleartext `FileKeys` file and comparing it with the hash sum stored in immudb.
+- Updating recipients in `FileKeys` file
+- Computing the SHA256 hash sum of the cleartext `FileKeys` file
+- Storing the SHA256 hash sum in immudb
+- Encrypting the `FileKeys` file for all recipients
+- Uploading the `FileKeys` file
