@@ -48,6 +48,15 @@ Clone the git Repository and and execute the command
 cd go-ge2ev2 && go build -o go-ge2ev2 main.go
 ```
 ## Configuration
+```
+immudbserver = "127.0.0.1"
+immmudbport = 3322
+immudbuser = "immudb"
+immudbpassword = "immudb"
+rcloneremote = "test"
+agerecipientfile = "./recipient_file"
+agekeyfile = "./key"
+```
 
 ## How it works
 ### Dataroom creation
