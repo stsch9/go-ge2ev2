@@ -84,7 +84,7 @@ func mkdrHandle(config ge2ev2.Config) {
 		os.Exit(1)
 	}
 
-	cmd := exec.Command("rclone", "mkdir", config.Rcloneremote+":"+dataroompath+"/.meta")
+	cmd := exec.Command("rclone", config.Rcloneparameter, "mkdir", config.Rcloneremote+":"+dataroompath+"/.meta")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -281,7 +281,7 @@ func readConfig(configFile string) ge2ev2.Config {
 func validateDR(dr string) (bool, error) {
 	cmd := exec.Command("rclone", "ls", dr)
 
-	err := cmd.Run()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Prüfe, ob der Fehler ein ExitError ist
 		if _, ok := err.(*exec.ExitError); ok {
@@ -291,6 +291,8 @@ func validateDR(dr string) (bool, error) {
 		} else {
 			return false, err
 		}
+	} else if len(string(output)) == 0 {
+		return false, nil
 	} else {
 		return true, nil
 	}
