@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"filippo.io/age"
 	immudb "github.com/codenotary/immudb/pkg/client"
@@ -58,7 +59,7 @@ func CreateDataroom(dataroompath string, config Config) {
 		os.Exit(1)
 	}
 
-	// Create FileKey File
+	// Create FileKeys File
 	k := make(map[string][2]string)
 	fk := FileKeys{1, k, recipients}
 	jsonFileKey, err := json.Marshal(fk)
@@ -110,49 +111,7 @@ func CreateDataroom(dataroompath string, config Config) {
 }
 
 func UploadFile(dataroompath string, file string, config Config) {
-	// check lock file
-	cmd := exec.Command("rclone", "ls", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.lock")
-	err := cmd.Run()
-	if err != nil {
-		// Prüfe, ob der Fehler ein ExitError ist
-		if _, ok := err.(*exec.ExitError); !ok {
-			fmt.Println("Unexpected error: ", err)
-			os.Exit(1)
-		}
-	} else {
-		fmt.Println("Lockfile Filekeys.lock exists.")
-		os.Exit(0)
-	}
-
-	// set lock file
-	cmd = exec.Command("rclone", "touch", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.lock")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// Prüfe, ob der Fehler ein ExitError ist
-		if _, ok := err.(*exec.ExitError); ok {
-			fmt.Println("Error: ", string(output))
-			os.Exit(1)
-		} else {
-			fmt.Println("Unexpected error: ", err)
-			os.Exit(1)
-		}
-	}
-
-	// Load Filekeys file
-	filekeys, err := LoadFileKeyFile(dataroompath, config)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	// check file already exists
-	filename := filepath.Base(file)
-	if _, ok := filekeys.Keys[filename]; ok {
-		fmt.Println("File " + filename + " already exits in dataroom " + dataroompath)
-		os.Exit(0)
-	}
-
-	// increment version
-	filekeys.Version += 1
+	// first check immudb connection???
 
 	// create file key
 	identity, err := age.GenerateX25519Identity()
@@ -167,16 +126,7 @@ func UploadFile(dataroompath string, file string, config Config) {
 		os.Exit(1)
 	}
 
-	filekeys.Keys[filename] = [2]string{identity.String(), hex.EncodeToString(fn)}
-	jsonFileKey, err := json.Marshal(filekeys)
-	if err != nil {
-		fmt.Println("unexpected error: ", err)
-		os.Exit(1)
-	}
-	// create sha256 sum
-	hash := sha256.Sum256(jsonFileKey)
 	// encrypt + write file
-	// Öffne die Datei zum Lesen
 	readerfile, err := os.Open(file)
 	if err != nil {
 		fmt.Println("unexpected error: ", err)
@@ -188,12 +138,117 @@ func UploadFile(dataroompath string, file string, config Config) {
 		fmt.Println("Error uploading file: ", err)
 		os.Exit(1)
 	}
-	// encrypt + write FileKey File; check recipients file hash missing!!!
+
+	// check + set Lock File and backup Filekeys File
+	if ok, err := CheckSetLockFile(config, dataroompath); err != nil {
+		fmt.Println(err)
+
+		cmd := exec.Command("rclone", "delete", config.Rcloneremote+":"+dataroompath+"/"+hex.EncodeToString(fn))
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			// Prüfe, ob der Fehler ein ExitError ist
+			if _, ok := err.(*exec.ExitError); ok {
+				fmt.Println("Error: ", string(output))
+			} else {
+				fmt.Println("Unexpected error: ", err)
+			}
+			fmt.Println("Please delete file ", dataroompath, "/", hex.EncodeToString(fn), " manually")
+		}
+
+		os.Exit(1)
+	} else if !ok {
+		fmt.Println("Lockfile Filekeys.lock exists.")
+
+		cmd := exec.Command("rclone", "delete", config.Rcloneremote+":"+dataroompath+"/"+hex.EncodeToString(fn))
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			// Prüfe, ob der Fehler ein ExitError ist
+			if _, ok := err.(*exec.ExitError); ok {
+				fmt.Println("Error: ", string(output))
+			} else {
+				fmt.Println("Unexpected error: ", err)
+			}
+			fmt.Println("Please delete file ", dataroompath, "/", hex.EncodeToString(fn), " manually")
+		}
+
+		os.Exit(0)
+	}
+
+	// Load Filekeys file
+	filekeys, err := LoadFileKeyFile(dataroompath, config)
+	if err != nil {
+		fmt.Println(err)
+
+		cmd := exec.Command("rclone", "delete", config.Rcloneremote+":"+dataroompath+"/"+hex.EncodeToString(fn))
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			// Prüfe, ob der Fehler ein ExitError ist
+			if _, ok := err.(*exec.ExitError); ok {
+				fmt.Println("Error: ", string(output))
+			} else {
+				fmt.Println("Unexpected error: ", err)
+			}
+			fmt.Println("Please delete file ", dataroompath, "/", hex.EncodeToString(fn), " manually")
+		}
+
+		DeleteLockFile(config, dataroompath)
+		os.Exit(1)
+	}
+
+	// check file already exists
+	filename := filepath.Base(file)
+	if _, ok := filekeys.Keys[filename]; ok {
+		timestamp := time.Now().Unix()
+		timestampStr := fmt.Sprintf("%d", timestamp)
+		filename += "_" + timestampStr
+		fmt.Println("File " + filename + " already exits in dataroom " + dataroompath)
+		fmt.Println("Using filename ", filename)
+	}
+
+	// increment version
+	filekeys.Version += 1
+
+	filekeys.Keys[filename] = [2]string{identity.String(), hex.EncodeToString(fn)}
+	jsonFileKey, err := json.Marshal(filekeys)
+	if err != nil {
+		fmt.Println("unexpected error: ", err)
+		cmd := exec.Command("rclone", "delete", config.Rcloneremote+":"+dataroompath+"/"+hex.EncodeToString(fn))
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			// Prüfe, ob der Fehler ein ExitError ist
+			if _, ok := err.(*exec.ExitError); ok {
+				fmt.Println("Error: ", string(output))
+			} else {
+				fmt.Println("Unexpected error: ", err)
+			}
+			fmt.Println("Please delete file ", dataroompath, "/", hex.EncodeToString(fn), " manually")
+		}
+
+		DeleteLockFile(config, dataroompath)
+		os.Exit(1)
+	}
+	// create sha256 sum
+	hash := sha256.Sum256(jsonFileKey)
+
+	// encrypt + write FileKeys file; check recipients file hash missing!!!
 	// Konvertiere []byte in io.Reader
 	reader := bytes.NewReader(jsonFileKey)
 	err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
 	if err != nil {
 		fmt.Println("Error uploading Filekeys file: ", err)
+		cmd := exec.Command("rclone", "delete", config.Rcloneremote+":"+dataroompath+"/"+hex.EncodeToString(fn))
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			// Prüfe, ob der Fehler ein ExitError ist
+			if _, ok := err.(*exec.ExitError); ok {
+				fmt.Println("Error: ", string(output))
+			} else {
+				fmt.Println("Unexpected error: ", err)
+			}
+			fmt.Println("Please delete file ", dataroompath, "/", hex.EncodeToString(fn), " manually")
+		}
+
+		DeleteLockFile(config, dataroompath)
 		os.Exit(1)
 	}
 
@@ -202,23 +257,12 @@ func UploadFile(dataroompath string, file string, config Config) {
 	if err != nil {
 		// rollback/delete FileKeys
 		// ToDo!!!
-		fmt.Println("INFO: Due to an immudb error the Filekeys file is deleted again")
+		fmt.Println("writing the hash value to immudb failed")
+		fmt.Println("please write (", dataroompath, ",", hex.EncodeToString(hash[:]), ") in immudb")
 	}
 
 	// delete Lock File
-	cmd = exec.Command("rclone", "delete", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.lock")
-
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		// Prüfe, ob der Fehler ein ExitError ist
-		if _, ok := err.(*exec.ExitError); ok {
-			fmt.Println("Error: ", string(output))
-			os.Exit(1)
-		} else {
-			fmt.Println("Unexpected error: ", err)
-			os.Exit(1)
-		}
-	}
+	DeleteLockFile(config, dataroompath)
 }
 
 func ShowFiles(dataroompath string, config Config) {
@@ -292,46 +336,14 @@ func DownloadFile(dataroompath string, filename string, dest string, config Conf
 }
 
 func DeleteFile(dataroompath string, filename string, config Config) {
-	// check lock file
-	cmd := exec.Command("rclone", "ls", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.lock")
-	err := cmd.Run()
-	if err != nil {
-		// Prüfe, ob der Fehler ein ExitError ist
-		if _, ok := err.(*exec.ExitError); !ok {
-			fmt.Println("Unexpected error: ", err)
-			os.Exit(1)
-		}
-	} else {
+
+	// check + set Lock File and backup Filekeys File
+	if ok, err := CheckSetLockFile(config, dataroompath); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	} else if !ok {
 		fmt.Println("Lockfile Filekeys.lock exists.")
 		os.Exit(0)
-	}
-
-	// create Filekeys backup
-	cmd = exec.Command("rclone", "copyto", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.backup")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// Prüfe, ob der Fehler ein ExitError ist
-		if _, ok := err.(*exec.ExitError); ok {
-			fmt.Println("Error creating Filekeys.backup: ", string(output))
-			os.Exit(1)
-		} else {
-			fmt.Println("Unexpected error: ", err)
-			os.Exit(1)
-		}
-	}
-
-	// set lock file
-	cmd = exec.Command("rclone", "touch", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.lock")
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		// Prüfe, ob der Fehler ein ExitError ist
-		if _, ok := err.(*exec.ExitError); ok {
-			fmt.Println("Error: ", string(output))
-			os.Exit(1)
-		} else {
-			fmt.Println("Unexpected error: ", err)
-			os.Exit(1)
-		}
 	}
 
 	filekeys, err := LoadFileKeyFile(dataroompath, config)
@@ -363,7 +375,6 @@ func DeleteFile(dataroompath string, filename string, config Config) {
 		// upload filekeys file
 		err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
 		if err != nil {
-			// ToDo: rollback
 			fmt.Println("Error writing Filekeys file: ", err)
 			DeleteLockFile(config, dataroompath)
 			os.Exit(1)
@@ -444,12 +455,23 @@ func ChangeRecipients(config Config, dataroompath string) {
 		os.Exit(1)
 	}
 
+	// check + set Lock File + create Filekeys backup
+	if ok, err := CheckSetLockFile(config, dataroompath); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	} else if !ok {
+		fmt.Println("Lockfile Filekeys.lock exists.")
+		os.Exit(0)
+	}
+
+	// load FileKeys File
 	filekeys, err := LoadFileKeyFile(dataroompath, config)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
+	// updade recipients in FileKeys File
 	filekeys.Recipients = recipients
 
 	jsonFileKey, err := json.Marshal(filekeys)
@@ -464,9 +486,11 @@ func ChangeRecipients(config Config, dataroompath string) {
 	// Konvertiere []byte in io.Reader
 	reader := bytes.NewReader(jsonFileKey)
 
+	// upload FileKeys file
 	err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys")
 	if err != nil {
-		fmt.Println("Error uploading Filekeys file: ", err)
+		fmt.Println("Error writing Filekeys file: ", err)
+		DeleteLockFile(config, dataroompath)
 		os.Exit(1)
 	}
 
@@ -475,16 +499,12 @@ func ChangeRecipients(config Config, dataroompath string) {
 	err = WriteImmmudb(dataroompath, hash[:], config.Immudbserver, config.Immmudbport, []byte(config.Immudbuser), []byte(config.Immudbpassword))
 	if err != nil {
 		// rollback/delete FileKeys
-		fmt.Println("INFO: Due to an immudb error the Filekeys file is deleted again")
-
-		err2 := os.Remove(dataroompath + "/.meta/Filekeys")
-		if err2 != nil {
-			fmt.Println("Error deleting the file: ", err2)
-		}
-
-		fmt.Println("Error: writing to immudb: ", err)
-		os.Exit(1)
+		fmt.Println("writing the hash value to immudb failed")
+		fmt.Println("please write (", dataroompath, ",", hex.EncodeToString(hash[:]), ") in immudb")
 	}
+
+	// delete Lock File
+	DeleteLockFile(config, dataroompath)
 }
 
 // Helper functions
@@ -594,7 +614,7 @@ func WriteImmmudb(key string, hash []byte, immudbserver string, immudbport int, 
 	if err != nil {
 		return fmt.Errorf("failed setting a verified entry: %v", err)
 	}
-	fmt.Printf("Sucessfully set a verified entry: ('%s', '%s') @ tx %d\n", []byte(key), []byte(hex.EncodeToString(hash)), hdr.Id)
+	fmt.Printf("Sucessfully set a verified entry in immudb: ('%s', '%s') @ tx %d\n", []byte(key), []byte(hex.EncodeToString(hash)), hdr.Id)
 
 	return nil
 }
@@ -723,6 +743,46 @@ func DeleteLockFile(config Config, dataroompath string) {
 		fmt.Println("Please delete lock File ", dataroompath, "/.meta/Filekeys.lock manually")
 		os.Exit(1)
 	}
+}
+
+func CheckSetLockFile(config Config, dataroompath string) (bool, error) {
+	// check lock file
+	cmd := exec.Command("rclone", "ls", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.lock")
+	err := cmd.Run()
+	if err != nil {
+		// Prüfe, ob der Fehler ein ExitError ist
+		if _, ok := err.(*exec.ExitError); !ok {
+			return false, fmt.Errorf("unexpected error: %v", err)
+		}
+	} else {
+		return false, nil
+	}
+
+	// create Filekeys backup
+	cmd = exec.Command("rclone", "copyto", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.backup")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Prüfe, ob der Fehler ein ExitError ist
+		if _, ok := err.(*exec.ExitError); ok {
+			return false, fmt.Errorf("error creating Filekeys.backup: %v", string(output))
+		} else {
+			return false, fmt.Errorf("unexpected error: %v", err)
+		}
+	}
+
+	// set lock file
+	cmd = exec.Command("rclone", "touch", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.lock")
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		// Prüfe, ob der Fehler ein ExitError ist
+		if _, ok := err.(*exec.ExitError); ok {
+			return false, fmt.Errorf("error: %v", string(output))
+		} else {
+			return false, fmt.Errorf("unexpected error: %v", err)
+		}
+	}
+
+	return true, nil
 }
 
 // ToDo:
