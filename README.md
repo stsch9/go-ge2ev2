@@ -53,13 +53,14 @@ cd go-ge2ev2 && go build -o go-ge2ev2 main.go
 ## Configuration
 Before starting, a config file `config.toml` must be created
 ```
-immudbserver = "127.0.0.1"              # IP or Domain of the Immudb Server
-immmudbport = 3322                      # Immudb Server Port
-immudbuser = "immudb"                   # username for immudb connetion
-immudbpassword = "immudb"               # pasword of immudb user
-rcloneremote = "test"                   # used rclone remote 
-agerecipientfile = "./recipient_file"   # File of all age recipients, which is read in when creating the dataroom and when changing the recipients
-agekeyfile = "./key"                    # Path to personal private age key file
+immudbserver = "127.0.0.1"               # IP or Domain of the Immudb Server
+immmudbport = 3322                       # Immudb Server Port
+immudbuser = "immudb"                    # username for immudb connetion
+immudbpassword = "immudb"                # pasword of immudb user
+rcloneremote = "test"                    # used rclone remote 
+rcloneparameter = "--s3-no-check-bucket" # additional parameter for the rclone command                
+agerecipientfile = "./recipient_file"    # File of all age recipients, which is read in when creating the dataroom and when changing the recipients
+agekeyfile = "./key"                     # Path to personal private age key file
 ```
 The path or the name can be changed with the `-c` parameter
 ```
