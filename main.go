@@ -88,7 +88,7 @@ func mkdrHandle(config ge2ev2.Config) {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// Prüfe, ob der Fehler ein ExitError ist
+		// check if the error is an ExitError
 		if _, ok := err.(*exec.ExitError); ok {
 			fmt.Println("Error: ", string(output))
 			os.Exit(1)
@@ -262,7 +262,6 @@ func readConfig(configFile string) ge2ev2.Config {
 		os.Exit(1)
 	}
 
-	// YAML-Daten in die Config-Struktur parsen
 	var config ge2ev2.Config
 	err = toml.Unmarshal(data, &config)
 	if err != nil {
@@ -283,9 +282,9 @@ func validateDR(dr string) (bool, error) {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// Prüfe, ob der Fehler ein ExitError ist
+		// check if the error is an ExitError
 		if _, ok := err.(*exec.ExitError); ok {
-			// Exit Code abrufen
+			// read Exit Code
 			//exitCode := exitErr.ExitCode()
 			return false, nil
 		} else {
