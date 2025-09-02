@@ -72,7 +72,7 @@ func CreateDataroom(dataroompath string, config Config) {
 	// create sha256 sum
 	hash := sha256.Sum256(jsonFileKey)
 
-	// Konvertiere []byte in io.Reader
+	// convert []byte to io.Reader
 	reader := bytes.NewReader(jsonFileKey)
 
 	// upload filekeys file
@@ -96,19 +96,6 @@ func CreateDataroom(dataroompath string, config Config) {
 		fmt.Println("Error: writing to immudb: ", err)
 		os.Exit(1)
 	}
-
-	// Option 1: create hash of recipients file and store it in immudb !!!
-	// immudb ist vertrauenswürdig nur berechtigte User haben Zugriff, (ssl cert authentication)
-	// einen user für hash of recipient file (es gibt verscheidene rollen read/write, read, usw.)
-	// eine user für hash of filekeys file
-	//
-	// Option 1a: Store filekeys and recipients in one file. Manipulation fällt schneller auf, da nicht mehr einfach nur die recipients manipuliert werden können.
-	// Option 1aa: Use vrf and store it in immudb
-	//
-	// Option 2: neues recipient File wird von einem User signiert, der bereits im alten recipient file enthalten war.
-
-	// Option 3: store minisign keys in recipient File; store recipient File in immudb; sign recipient File with minisign; recipient File kann nur mit einem public minisign key verifiziert werden, der in der vorherigen version gespeichert war.
-	// Option 4: Combine Option 1 and 4: Store Filekeys and recipients in one file + store recipients (hash) in immudb + siging ...
 }
 
 func UploadFile(dataroompath string, file string, config Config) {
@@ -216,7 +203,7 @@ func UploadFile(dataroompath string, file string, config Config) {
 		cmd := exec.Command("rclone", config.Rcloneparameter, "delete", config.Rcloneremote+":"+dataroompath+"/"+hex.EncodeToString(fn))
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			// Prüfe, ob der Fehler ein ExitError ist
+			// check if the error is an ExitError
 			if _, ok := err.(*exec.ExitError); ok {
 				fmt.Println("Error: ", string(output))
 			} else {
@@ -232,7 +219,7 @@ func UploadFile(dataroompath string, file string, config Config) {
 	hash := sha256.Sum256(jsonFileKey)
 
 	// encrypt + write FileKeys file; check recipients file hash missing!!!
-	// Konvertiere []byte in io.Reader
+	// convert []byte to io.Reader
 	reader := bytes.NewReader(jsonFileKey)
 	err = RcloneUpload(filekeys.Recipients, reader, config.Rcloneremote, dataroompath+"/.meta/Filekeys", config)
 	if err != nil {
@@ -240,7 +227,7 @@ func UploadFile(dataroompath string, file string, config Config) {
 		cmd := exec.Command("rclone", config.Rcloneparameter, "delete", config.Rcloneremote+":"+dataroompath+"/"+hex.EncodeToString(fn))
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			// Prüfe, ob der Fehler ein ExitError ist
+			// check if the error is an ExitError
 			if _, ok := err.(*exec.ExitError); ok {
 				fmt.Println("Error: ", string(output))
 			} else {
@@ -285,7 +272,7 @@ func DownloadFile(dataroompath string, filename string, dest string, config Conf
 		os.Exit(1)
 	}
 
-	// check file exists ausbessern
+	// check file exists
 	filekey, ok := filekeys.Keys[filename]
 	if ok {
 		// decrypt file
@@ -370,7 +357,7 @@ func DeleteFile(dataroompath string, filename string, config Config) {
 		hash := sha256.Sum256(jsonFileKey)
 
 		// encrypt + write FileKey File; check recipients file hash missing!!!
-		// Konvertiere []byte in io.Reader
+		// convert []byte to io.Reader
 		reader := bytes.NewReader(jsonFileKey)
 
 		// upload filekeys file
@@ -385,17 +372,17 @@ func DeleteFile(dataroompath string, filename string, config Config) {
 		cmd := exec.Command("rclone", config.Rcloneparameter, "deletefile", config.Rcloneremote+":"+dataroompath+"/"+filekey[1])
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			// Prüfe, ob der Fehler ein ExitError ist
+			// check if the error is an ExitError
 			if _, ok := err.(*exec.ExitError); ok {
 				fmt.Println("Error deleting file: ", string(output))
 			} else {
 				fmt.Println("Unexpected error: ", err)
 			}
-			// rollback, falls File gar nicht existiert, wäre kein rollback notwendig.
+			// rollback. If the file does not exist, no rollback would be necessary
 			cmd = exec.Command("rclone", config.Rcloneparameter, "copyto", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.backup", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys")
 			output, err := cmd.CombinedOutput()
 			if err != nil {
-				// Prüfe, ob der Fehler ein ExitError ist
+				// check if the error is an ExitError
 				if _, ok := err.(*exec.ExitError); ok {
 					fmt.Println("Error: ", string(output))
 				} else {
@@ -516,13 +503,13 @@ func EncryptAge2(recipientstrings []string, out io.WriteCloser, in io.Reader) er
 	var recipients []age.Recipient
 
 	for _, key := range recipientstrings {
-		// Parsen des Public Keys
+		// read public key
 		recipient, err := age.ParseX25519Recipient(key)
 		if err != nil {
 			return fmt.Errorf("failed to parse recipient %s: %v", key, err)
 		}
 
-		// Hinzufügen des Recipients zum Slice
+		// add recipient
 		recipients = append(recipients, recipient)
 	}
 
@@ -531,12 +518,12 @@ func EncryptAge2(recipientstrings []string, out io.WriteCloser, in io.Reader) er
 		return fmt.Errorf("failed to create encrypted file: %v", err)
 	}
 
-	// Kopieren der Daten von der Eingabedatei in den Verschlüsselungsstream
+	// copy data from the input file into the encryption stream
 	if _, err := io.Copy(w, in); err != nil {
 		return fmt.Errorf("failed to encrypt file: %v", err)
 	}
 
-	// Schließen des Verschlüsselungsstreams
+	// close the encryption stream
 	if err := w.Close(); err != nil {
 		return fmt.Errorf("failed to close encryption stream: %v", err)
 	}
@@ -553,12 +540,12 @@ func EncryptAge3(recipient age.Recipient, out io.WriteCloser, in io.Reader) erro
 		return fmt.Errorf("failed to create encrypted file: %v", err)
 	}
 
-	// Kopieren der Daten von der Eingabedatei in den Verschlüsselungsstream
+	// copy data from the input file into the encryption stream
 	if _, err := io.Copy(w, in); err != nil {
 		return fmt.Errorf("failed to encrypt file: %v", err)
 	}
 
-	// Schließen des Verschlüsselungsstreams
+	// close the encryption stream
 	if err := w.Close(); err != nil {
 		return fmt.Errorf("failed to close encryption stream: %v", err)
 	}
@@ -749,10 +736,9 @@ func DeleteLockFile(config Config, dataroompath string) {
 func CheckSetLockFile(config Config, dataroompath string) (bool, error) {
 	// check lock file
 	cmd := exec.Command("rclone", config.Rcloneparameter, "ls", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.lock")
-	//cmd := exec.Command("rclone", "--s3-no-check-bucket", "ls", "test:test-stsch/.meta/Filekeys.lock")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// Prüfe, ob der Fehler ein ExitError ist
+		// check if the error is an ExitError
 		if _, ok := err.(*exec.ExitError); !ok {
 			return false, fmt.Errorf("unexpected error: %v", err)
 		}
@@ -764,7 +750,7 @@ func CheckSetLockFile(config Config, dataroompath string) (bool, error) {
 	cmd = exec.Command("rclone", config.Rcloneparameter, "copyto", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.backup")
 	output, err = cmd.CombinedOutput()
 	if err != nil {
-		// Prüfe, ob der Fehler ein ExitError ist
+		// check if the error is an ExitError
 		if _, ok := err.(*exec.ExitError); ok {
 			return false, fmt.Errorf("error creating Filekeys.backup: %v", string(output))
 		} else {
@@ -776,7 +762,7 @@ func CheckSetLockFile(config Config, dataroompath string) (bool, error) {
 	cmd = exec.Command("rclone", config.Rcloneparameter, "touch", config.Rcloneremote+":"+dataroompath+"/.meta/Filekeys.lock")
 	output, err = cmd.CombinedOutput()
 	if err != nil {
-		// Prüfe, ob der Fehler ein ExitError ist
+		// check if the error is an ExitError
 		if _, ok := err.(*exec.ExitError); ok {
 			return false, fmt.Errorf("error: %v", string(output))
 		} else {
@@ -788,11 +774,9 @@ func CheckSetLockFile(config Config, dataroompath string) (bool, error) {
 }
 
 // ToDo:
-//		 - doku
 // 		- consider brotobuf
 //		- overwrite file
 //		- other age recipient types
-//		- lock file
-//		- rollback for upload + delete
+//		- rollback immudb
 //		- parallel
 //		- versioning (store hash, timestamp)
