@@ -14,16 +14,26 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
-	"time"
 
 	"filippo.io/age"
 	immudb "github.com/codenotary/immudb/pkg/client"
 )
 
+type SecretPair struct {
+	Agekey   string `json:"Agekey"`
+	Filename string `json:"Filename"`
+}
+
+type FileEntry struct {
+	Id          string       `json:"Id"`
+	Versionkeys []SecretPair `json:"Versionkeys"`
+}
+
 type FileKeys struct {
 	Version    int                  `json:"Version"`
-	Keys       map[string][2]string `json:"Keys"`
+	Keys       map[string]FileEntry `json:"Keys"`
 	Recipients []string             `json:"Recipients"`
 }
 
@@ -61,7 +71,7 @@ func CreateDataroom(dataroompath string, config Config) {
 	}
 
 	// Create FileKeys File
-	k := make(map[string][2]string)
+	k := make(map[string]FileEntry)
 	fk := FileKeys{1, k, recipients}
 	jsonFileKey, err := json.Marshal(fk)
 	if err != nil {
@@ -185,18 +195,38 @@ func UploadFile(dataroompath string, file string, config Config) {
 
 	// check file already exists
 	filename := filepath.Base(file)
-	if _, ok := filekeys.Keys[filename]; ok {
-		timestamp := time.Now().Unix()
-		timestampStr := fmt.Sprintf("%d", timestamp)
-		filename += "_" + timestampStr
-		fmt.Println("File " + filename + " already exits in dataroom " + dataroompath)
-		fmt.Println("Using filename ", filename)
+	if _, ok := filekeys.Keys[filename]; !ok {
+		// if filename does not exists
+		// create random file id
+		fileid := make([]byte, 32)
+		if _, err := rand.Read(fileid); err != nil {
+			fmt.Println("unexpected error: ", err)
+			os.Exit(1) // TODO: delete file
+		}
+		filekeys.Keys[filename] = FileEntry{
+			Id: hex.EncodeToString(fileid),
+			Versionkeys: []SecretPair{
+				{
+					Agekey:   identity.String(),
+					Filename: hex.EncodeToString(fn),
+				},
+			},
+		}
+	} else {
+		newPair := SecretPair{
+			Agekey:   identity.String(),
+			Filename: hex.EncodeToString(fn),
+		}
+
+		filekeys.Keys[filename] = FileEntry{
+			Id:          filekeys.Keys[filename].Id,
+			Versionkeys: append(filekeys.Keys[filename].Versionkeys, newPair),
+		}
 	}
 
 	// increment version
 	filekeys.Version += 1
 
-	filekeys.Keys[filename] = [2]string{identity.String(), hex.EncodeToString(fn)}
 	jsonFileKey, err := json.Marshal(filekeys)
 	if err != nil {
 		fmt.Println("unexpected error: ", err)
@@ -261,7 +291,7 @@ func ShowFiles(dataroompath string, config Config) {
 	}
 
 	for key := range filekeys.Keys {
-		fmt.Println(dataroompath + "/" + key)
+		fmt.Println(dataroompath + "/" + key + " [Versions: " + strconv.Itoa(len(filekeys.Keys[key].Versionkeys)) + "]")
 	}
 }
 
@@ -283,13 +313,13 @@ func DownloadFile(dataroompath string, filename string, dest string, config Conf
 		}
 		defer f.Close()
 
-		identity, err := age.ParseX25519Identity(filekey[0])
+		identity, err := age.ParseX25519Identity(filekey.Versionkeys[len(filekey.Versionkeys)-1].Agekey)
 		if err != nil {
 			fmt.Println("unexpected error: ", err)
 			os.Exit(1)
 		}
 
-		cmd := exec.Command("rclone", config.Rcloneparameter, "cat", config.Rcloneremote+":"+dataroompath+"/"+filekey[1])
+		cmd := exec.Command("rclone", config.Rcloneparameter, "cat", config.Rcloneremote+":"+dataroompath+"/"+filekey.Versionkeys[len(filekey.Versionkeys)-1].Filename)
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -343,8 +373,14 @@ func DeleteFile(dataroompath string, filename string, config Config) {
 
 	filekey, ok := filekeys.Keys[filename]
 	if ok {
-		// delete filekeys entry
-		delete(filekeys.Keys, filename)
+		if len(filekey.Versionkeys) > 1 {
+			// remove latest version
+			filekey.Versionkeys = filekey.Versionkeys[:len(filekey.Versionkeys)-1]
+			filekeys.Keys[filename] = filekey
+		} else {
+			// delete filekeys entry
+			delete(filekeys.Keys, filename)
+		}
 
 		jsonFileKey, err := json.Marshal(filekeys)
 		if err != nil {
@@ -369,7 +405,7 @@ func DeleteFile(dataroompath string, filename string, config Config) {
 		}
 
 		// delete file via rclone
-		cmd := exec.Command("rclone", config.Rcloneparameter, "deletefile", config.Rcloneremote+":"+dataroompath+"/"+filekey[1])
+		cmd := exec.Command("rclone", config.Rcloneparameter, "deletefile", config.Rcloneremote+":"+dataroompath+"/"+filekey.Versionkeys[len(filekey.Versionkeys)-1].Filename)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			// check if the error is an ExitError
